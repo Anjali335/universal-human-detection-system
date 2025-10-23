@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Universal CCTV Human Detection</title>
+
+  <!-- TensorFlow + COCO-SSD -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.21.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+      font-family: "Segoe UI", sans-serif;
+      min-height: 100vh;
+      padding: 20px;
+      color: #fff;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+      padding: 20px;
+    }
+    h1 {
+      font-size: 3em;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 10px;
+      animation: glow 2s ease-in-out infinite alternate;
+    }
+    @keyframes glow {
+      from { filter: drop-shadow(0 0 20px rgba(102, 126, 234, 0.5)); }
+      to { filter: drop-shadow(0 0 40px rgba(102, 126, 234, 0.8)); }
+    }
+    .subtitle {
+      color: #a0a0a0;
+      font-size: 1.2em;
+    }
+
+    /* Setup Panel */
+    #setupPanel {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 40px;
+      border-radius: 25px;
+      margin-bottom: 30px;
+      box-shadow: 0 15px 50px rgba(0, 0, 0, 0.5);
+    }
+    .method-selector {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .method-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      padding: 25px;
+      border-radius: 15px;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-align: center;
+    }
+    .method-card:hover {
+      transform: translateY(-5px);
+      border-color: #667eea;
+      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+    }
+    .method-card.active {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+      border-color: #667eea;
+    }
+    .method-icon {
+      font-size: 3em;
+      margin-bottom: 15px;
+    }
+    .method-title {
+      font-size: 1.2em;
+      font-weight: 600;
+      color: #667eea;
+      margin-bottom: 10px;
+    }
+    .method-desc {
+      color: #888;
+      font-size: 0.9em;
+    }
+
+    .config-section {
+      display: none;
+      animation: fadeIn 0.3s;
+    }
+    .config-section.active {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .input-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #667eea;
+      font-weight: 600;
+      font-size: 15px;
+    }
+    input, select {
+      width: 100%;
+      padding: 15px;
+      border: 2px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.3);
+      color: #fff;
+      font-size: 15px;
+      transition: all 0.3s;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+    }
+    .hint {
+      color: #888;
+      font-size: 13px;
+      margin-top: 8px;
+      display: block;
+      line-height: 1.5;
+    }
+    .url-examples {
+      background: rgba(102, 126, 234, 0.1);
+      border-left: 4px solid #667eea;
+      padding: 20px;
+      border-radius: 10px;
+      margin-top: 15px;
+    }
+    .url-examples h4 {
+      color: #667eea;
+      margin-bottom: 12px;
+      font-size: 1.1em;
+    }
+    .url-example {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 15px;
+      border-radius: 8px;
+      margin: 8px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: #a0a0a0;
+      word-break: break-all;
+    }
+    .brand-name {
+      color: #667eea;
+      font-weight: 600;
+    }
+
+    /* Video Container */
+    #videoContainer {
+      position: relative;
+      background: #000;
+      border-radius: 25px;
+      overflow: hidden;
+      box-shadow: 0 25px 80px rgba(102, 126, 234, 0.4);
+      display: none;
+      margin-bottom: 30px;
+    }
+    #videoContainer.active {
+      display: block;
+    }
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      padding-bottom: 56.25%;
+    }
+    video, canvas, #snapshotImg {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .detection-overlay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+    .stats-panel {
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(10px);
+      padding: 20px;
+      border-radius: 15px;
+      border: 2px solid #667eea;
+      min-width: 200px;
+    }
+    .stat-item {
+      margin: 10px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .stat-label {
+      color: #888;
+      font-size: 14px;
+    }
+    .stat-value {
+      color: #667eea;
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .alert-panel {
+      background: rgba(255, 68, 68, 0.9);
+      padding: 15px 25px;
+      border-radius: 15px;
+      font-weight: 600;
+      animation: alertPulse 1s infinite;
+      display: none;
+    }
+    .alert-panel.active {
+      display: block;
+    }
+    @keyframes alertPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    /* Controls */
+    #controls {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+    button {
+      padding: 18px 40px;
+      border: none;
+      border-radius: 15px;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 700;
+      transition: all 0.3s;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+    #startBtn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    #startBtn:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 15px 40px rgba(102, 126, 234, 0.5);
+    }
+    #startBtn:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+    #stopBtn {
+      background: linear-gradient(135deg, #ff4444, #cc0000);
+      color: white;
+    }
+    #stopBtn:hover:not(:disabled) {
+      transform: translateY(-3px);
+      box-shadow: 0 15px 40px rgba(255, 68, 68, 0.5);
+    }
+    #stopBtn:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+    .status-badge {
+      background: rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(10px);
+      padding: 15px 30px;
+      border-radius: 25px;
+      font-weight: 600;
+      border: 2px solid #667eea;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #667eea;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 15px #667eea; }
+      50% { opacity: 0.4; box-shadow: 0 0 5px #667eea; }
+    }
+
+    /* Info Section */
+    .info-section {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 25px;
+      margin-top: 40px;
+    }
+    .info-card {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 30px;
+      border-radius: 20px;
+      border-left: 5px solid #667eea;
+    }
+    .info-card h3 {
+      color: #667eea;
+      margin-bottom: 20px;
+      font-size: 1.3em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .info-card ul {
+      list-style: none;
+    }
+    .info-card li {
+      color: #ccc;
+      margin: 12px 0;
+      padding-left: 25px;
+      position: relative;
+      line-height: 1.6;
+    }
+    .info-card li:before {
+      content: '▸';
+      position: absolute;
+      left: 0;
+      color: #667eea;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎯 Universal CCTV Human Detection</h1>
+      <p class="subtitle">Works with ANY IP Camera • Real-Time AI Detection • Instant Alerts</p>
+    </header>
+
+    <div id="setupPanel">
+      <div class="method-selector">
+        <div class="method-card active" data-method="webcam">
+          <div class="method-icon">🖥️</div>
+          <div class="method-title">Laptop/USB Camera</div>
+          <div class="method-desc">Use built-in webcam or USB-connected cameras</div>
+        </div>
+
+        <div class="method-card" data-method="snapshot">
+          <div class="method-icon">📸</div>
+          <div class="method-title">Snapshot URL</div>
+          <div class="method-desc">Works with most IP cameras via snapshot endpoint</div>
+        </div>
+
+        <div class="method-card" data-method="mjpeg">
+          <div class="method-icon">🎥</div>
+          <div class="method-title">MJPEG Stream</div>
+          <div class="method-desc">Direct video stream from IP cameras</div>
+        </div>
+
+        <div class="method-card" data-method="hls">
+          <div class="method-icon">📡</div>
+          <div class="method-title">HLS/HTTP Stream</div>
+          <div class="method-desc">For cameras with HTTP video streams</div>
+        </div>
+      </div>
+
+      <!-- Webcam Config -->
+      <div class="config-section active" data-config="webcam">
+        <div class="input-group">
+          <label for="deviceSelect">📹 Select Camera Device</label>
+          <select id="deviceSelect">
+            <option value="">Loading cameras...</option>
+          </select>
+          <span class="hint">Choose your laptop webcam or any USB-connected CCTV camera</span>
+        </div>
+      </div>
+
+      <!-- Snapshot Config -->
+      <div class="config-section" data-config="snapshot">
+        <div class="input-group">
+          <label for="snapshotUrl">📸 Camera Snapshot URL</label>
+          <input type="text" id="snapshotUrl" placeholder="http://192.168.1.100/snapshot.cgi" />
+          <span class="hint">Enter the snapshot URL provided by your camera. This method works with most IP cameras.</span>
+        </div>
+
+        <div class="input-group">
+          <label>🔄 Detection Speed</label>
+          <select id="snapshotInterval">
+            <option value="500">Very Fast (0.5s) - More CPU usage</option>
+            <option value="1000" selected>Fast (1s) - Recommended</option>
+            <option value="2000">Normal (2s)</option>
+            <option value="3000">Slow (3s) - Less CPU usage</option>
+          </select>
+        </div>
+
+        <div class="url-examples">
+          <h4>📋 Common Snapshot URL Formats:</h4>
+          <div class="url-example"><span class="brand-name">CP PLUS:</span> http://IP/snapshot.cgi?user=admin&pwd=PASSWORD</div>
+          <div class="url-example"><span class="brand-name">Hikvision:</span> http://IP/ISAPI/Streaming/channels/1/picture</div>
+          <div class="url-example"><span class="brand-name">Dahua:</span> http://IP/cgi-bin/snapshot.cgi?user=admin&pwd=PASSWORD</div>
+          <div class="url-example"><span class="brand-name">TP-Link:</span> http://admin:PASSWORD@IP/stream/snapshot.jpg</div>
+          <div class="url-example"><span class="brand-name">D-Link:</span> http://IP/image/jpeg.cgi</div>
+          <div class="url-example"><span class="brand-name">Foscam:</span> http://IP/cgi-bin/CGIProxy.fcgi?cmd=snapPicture2&usr=admin&pwd=PASSWORD</div>
+          <div class="url-example"><span class="brand-name">Axis:</span> http://IP/axis-cgi/jpg/image.cgi</div>
+          <div class="url-example"><span class="brand-name">Generic:</span> http://admin:PASSWORD@IP/snapshot.jpg</div>
+        </div>
+      </div>
+
+      <!-- MJPEG Config -->
+      <div class="config-section" data-config="mjpeg">
+        <div class="input-group">
+          <label for="mjpegUrl">🎥 MJPEG Stream URL</label>
+          <input type="text" id="mjpegUrl" placeholder="http://192.168.1.100/video" />
+          <span class="hint">Enter the MJPEG video stream URL from your camera</span>
+        </div>
+
+        <div class="url-examples">
+          <h4>📋 Common MJPEG Stream URLs:</h4>
+          <div class="url-example"><span class="brand-name">CP PLUS:</span> http://IP/videostream.cgi?user=admin&pwd=PASSWORD</div>
+          <div class="url-example"><span class="brand-name">Hikvision:</span> http://admin:PASSWORD@IP/ISAPI/Streaming/channels/101/httppreview</div>
+          <div class="url-example"><span class="brand-name">Dahua:</span> http://IP/cgi-bin/mjpg/video.cgi?user=admin&password=PASSWORD</div>
+          <div class="url-example"><span class="brand-name">Axis:</span> http://IP/mjpg/video.mjpg</div>
+          <div class="url-example"><span class="brand-name">Android IP Webcam:</span> http://IP:8080/video</div>
+          <div class="url-example"><span class="brand-name">Generic:</span> http://admin:PASSWORD@IP/video.mjpeg</div>
+        </div>
+      </div>
+
+      <!-- HLS Config -->
+      <div class="config-section" data-config="hls">
+        <div class="input-group">
+          <label for="hlsUrl">📡 HLS/HTTP Stream URL</label>
+          <input type="text" id="hlsUrl" placeholder="http://192.168.1.100/stream.m3u8" />
+          <span class="hint">Enter HLS (.m3u8) or direct HTTP video stream URL</span>
+        </div>
+
+        <div class="url-examples">
+          <h4>📋 HLS Stream Examples:</h4>
+          <div class="url-example"><span class="brand-name">HLS:</span> http://IP/stream.m3u8</div>
+          <div class="url-example"><span class="brand-name">HTTP MP4:</span> http://IP/stream.mp4</div>
+          <div class="hint" style="margin-top: 15px; color: #ff9800;">
+            ⚠️ Note: HLS streams may have 5-10 second delay. For real-time detection, use Snapshot or MJPEG method.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="videoContainer">
+      <div class="video-wrapper">
+        <video id="video" autoplay muted playsinline></video>
+        <img id="snapshotImg" style="display:none;" />
+        <canvas id="canvas"></canvas>
+        
+        <div class="detection-overlay">
+          <div class="stats-panel">
+            <div class="stat-item">
+              <span class="stat-label">👤 Humans:</span>
+              <span class="stat-value" id="humanCount">0</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">🎯 Confidence:</span>
+              <span class="stat-value" id="confidence">0%</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">⏱️ FPS:</span>
+              <span class="stat-value" id="fps">0</span>
+            </div>
+          </div>
+          
+          <div class="alert-panel" id="alertPanel">
+            🚨 HUMAN DETECTED!
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="controls">
+      <button id="startBtn">🚀 Start Detection</button>
+      <button id="stopBtn" disabled>⏹️ Stop Detection</button>
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        <span id="status">Ready</span>
+      </div>
+    </div>
+
+    <div class="info-section">
+      <div class="info-card">
+        <h3>🔍 How to Find Your Camera URL</h3>
+        <ul>
+          <li>Check camera manual or manufacturer website</li>
+          <li>Look in camera's mobile app settings</li>
+          <li>Common path: Settings → Network → Stream URL</li>
+          <li>Try manufacturer-specific URL formats above</li>
+          <li>Use IP scanner tools to find camera IP</li>
+          <li>Default ports: 80, 8080, 554, 8000</li>
+        </ul>
+      </div>
+
+      <div class="info-card">
+        <h3>⚙️ Recommended Settings</h3>
+        <ul>
+          <li><strong>Best Performance:</strong> Snapshot Method (1s interval)</li>
+          <li><strong>Lowest Latency:</strong> MJPEG Stream</li>
+          <li><strong>USB Cameras:</strong> Laptop/USB Camera mode</li>
+          <li>Ensure camera and laptop on same network</li>
+          <li>Use wired connection for better stability</li>
+          <li>Lower resolution = faster detection</li>
+        </ul>
+      </div>
+
+      <div class="info-card">
+        <h3>🛠️ Troubleshooting</h3>
+        <ul>
+          <li>Camera not loading? Try different URL format</li>
+          <li>Check camera username/password</li>
+          <li>Disable browser CORS restrictions</li>
+          <li>Test URL in browser first</li>
+          <li>Ensure firewall allows camera access</li>
+          <li>Try HTTP instead of HTTPS</li>
+        </ul>
+      </div>
+
+      <div class="info-card">
+        <h3>🎯 Detection Features</h3>
+        <ul>
+          <li>Real-time human detection using AI</li>
+          <li>Audio beep alert when human detected</li>
+          <li>Visual bounding boxes around humans</li>
+          <li>Confidence score display</li>
+          <li>Works with any IP camera brand</li>
+          <li>Runs entirely in your browser</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <audio id="beep" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg"></audio>
+
+  <script>
+    let model, stream, detectInterval, currentMode, lastTime = Date.now(), frameCount = 0;
+    const video = document.getElementById('video');
+    const snapshotImg = document.getElementById('snapshotImg');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const beep = document.getElementById('beep');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusText = document.getElementById('status');
+    const videoContainer = document.getElementById('videoContainer');
+    const alertPanel = document.getElementById('alertPanel');
+
+    // Method card selection
+    document.querySelectorAll('.method-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.method-card').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.config-section').forEach(s => s.classList.remove('active'));
+        card.classList.add('active');
+        const method = card.dataset.method;
+        document.querySelector(`[data-config="${method}"]`).classList.add('active');
+      });
+    });
+
+    // Load camera devices
+    async function loadCameraDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        const select = document.getElementById('deviceSelect');
+        select.innerHTML = '';
+        
+        if (videoDevices.length === 0) {
+          select.innerHTML = '<option>No cameras found</option>';
+          return;
+        }
+
+        videoDevices.forEach((device, i) => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.text = device.label || `Camera ${i + 1}`;
+          select.appendChild(option);
+        });
+      } catch (err) {
+        console.error('Camera enumeration error:', err);
+      }
+    }
+
+    // Setup camera based on selected method
+    async function setupCamera() {
+      const activeMethod = document.querySelector('.method-card.active').dataset.method;
+      currentMode = activeMethod;
+
+      video.style.display = 'none';
+      snapshotImg.style.display = 'none';
+
+      if (activeMethod === 'webcam') {
+        const deviceId = document.getElementById('deviceSelect').value;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: deviceId ? { exact: deviceId } : undefined }
+        });
+        video.srcObject = stream;
+        video.style.display = 'block';
+        await video.play();
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+      } 
+      else if (activeMethod === 'snapshot') {
+        const url = document.getElementById('snapshotUrl').value.trim();
+        if (!url) throw new Error('Please enter snapshot URL');
+        
+        // Test snapshot URL
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+        
+        await new Promise((resolve, reject) => {
+          img.onload = () => {
+            canvas.width = img.width || 640;
+            canvas.height = img.height || 480;
+            snapshotImg.src = img.src;
+            snapshotImg.style.display = 'block';
+            resolve();
+          };
+          img.onerror = () => reject(new Error('Cannot load snapshot. Check URL, credentials, and CORS settings.'));
+          setTimeout(() => reject(new Error('Snapshot load timeout')), 15000);
+        });
+      }
+      else if (activeMethod === 'mjpeg') {
+        const url = document.getElementById('mjpegUrl').value.trim();
+        if (!url) throw new Error('Please enter MJPEG stream URL');
+        
+        video.src = url;
+        video.style.display = 'block';
+        await video.play();
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+      }
+      else if (activeMethod === 'hls') {
+        const url = document.getElementById('hlsUrl').value.trim();
+        if (!url) throw new Error('Please enter HLS stream URL');
+        
+        video.src = url;
+        video.style.display = 'block';
+        await video.play();
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+      }
+    }
+
+    // Update FPS counter
+    function updateFPS() {
+      frameCount++;
+      const now = Date.now();
+      if (now - lastTime >= 1000) {
+        document.getElementById('fps').textContent = frameCount;
+        frameCount = 0;
+        lastTime = now;
+      }
+    }
+
+    // Draw predictions on canvas
+    function drawPredictions(predictions) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      let humanCount = 0;
+      let maxConfidence = 0;
+
+      predictions.forEach(pred => {
+        if (pred.class === "person" && pred.score > 0.5) {
+          humanCount++;
+          maxConfidence = Math.max(maxConfidence, pred.score);
+          
+          const [x, y, width, height] = pred.bbox;
+          
+          // Draw glowing box
+          ctx.shadowColor = '#667eea';
+          ctx.shadowBlur = 20;
+          ctx.strokeStyle = "#667eea";
+          ctx.lineWidth = 4;
+          ctx.strokeRect(x, y, width, height);
+          
+          // Draw label background
+          const label = `HUMAN ${(pred.score * 100).toFixed(0)}%`;
+          ctx.font = "bold 20px Arial";
+          const textWidth = ctx.measureText(label).width;
+          
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "#667eea";
+          ctx.fillRect(x, y > 30 ? y - 30 : y, textWidth + 20, 30);
+          
+          // Draw label text
+          ctx.fillStyle = "#fff";
+          ctx.fillText(label, x + 10, y > 30 ? y - 8 : y + 22);
+        }
+      });
+
+      // Update UI
+      document.getElementById('humanCount').textContent = humanCount;
+      document.getElementById('confidence').textContent = maxConfidence ? `${(maxConfidence * 100).toFixed(0)}%` : '0%';
+      
+      if (humanCount > 0) {
+        alertPanel.classList.add('active');
+        playBeep();
+      } else {
+        alertPanel.classList.remove('active');
+      }
+
+      updateFPS();
+    }
+
+    // Play beep sound
+    function playBeep() {
+      beep.pause();
+      beep.currentTime = 0;
+      beep.play().catch(err => console.log("Beep blocked:", err));
+    }
+
+    // Detection loop
+    async function detect() {
+      try {
+        let source = video;
+        
+        // For snapshot mode, reload image
+        if (currentMode === 'snapshot') {
+          const url = document.getElementById('snapshotUrl').value.trim();
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+          
+          await new Promise((resolve, reject) => {
+            img.onload = () => {
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              source = canvas;
+              resolve();
+            };
+            img.onerror = resolve; // Continue on error
+            setTimeout(resolve, 5000);
+          });
+        }
+
+        const predictions = await model.detect(source);
+        drawPredictions(predictions);
+      } catch (err) {
+        console.error('Detection error:', err);
+      }
+    }
+
+    // Start button handler
+    startBtn.addEventListener('click', async () => {
+      try {
+        startBtn.disabled = true;
+        statusText.textContent = "Initializing...";
+        
+        // Unlock audio
+        beep.play().then(() => beep.pause()).catch(() => {});
+
+        // Setup camera
+        await setupCamera();
+        videoContainer.classList.add('active');
+        
+        // Load AI model
+        statusText.textContent = "Loading AI Model...";
+        if (!model) {
+          model = await cocoSsd.load();
+        }
+        
+        // Start detection
+        stopBtn.disabled = false;
+        statusText.textContent = "Monitoring...";
+        
+        const interval = currentMode === 'snapshot' 
+          ? parseInt(document.getElementById('snapshotInterval').value)
+          : 500;
+        
+        detectInterval = setInterval(detect, interval);
+      } catch (err) {
+        console.error('Setup error:', err);
+        statusText.textContent = `Error: ${err.message}`;
+        startBtn.disabled = false;
+        alert(`Setup Failed:\n${err.message}\n\nTroubleshooting:\n• Check camera URL format\n• Verify username/password\n• Ensure camera is accessible\n• Try different method (Snapshot recommended)`);
+      }
+    });
+
+    // Stop button handler
+    stopBtn.addEventListener('click', () => {
+      clearInterval(detectInterval);
+      
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      
+      video.srcObject = null;
+      video.src = '';
+      snapshotImg.src = '';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      videoContainer.classList.remove('active');
+      alertPanel.classList.remove('active');
+      
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      statusText.textContent = "Stopped";
+      
+      document.getElementById('humanCount').textContent = '0';
+      document.getElementById('confidence').textContent = '0%';
+      document.getElementById('fps').textContent = '0';
+    });
+
+    // Initialize
+    loadCameraDevices();
+    
+    // Request camera permission on page load
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        stream.getTracks().forEach(track => track.stop());
+        loadCameraDevices();
+      })
+      .catch(() => {});
+  </script>
+</body>
+</html>
